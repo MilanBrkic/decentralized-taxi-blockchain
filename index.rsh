@@ -29,6 +29,7 @@ const adminInteract = {
 
 const rideInteract = {
   start: Fun([], Null),
+  adminInterference: Fun([Bool, Bool], Null),
 };
 
 export const main = Reach.App(() => {
@@ -92,13 +93,22 @@ export const main = Reach.App(() => {
 
   Admin.interact.ready();
 
-  const [passengerStart, driverStart, adminInterfered, timeoutDetected] =
-    parallelReduce([false, false, false, false])
+  const [passengerStart, driverStart, adminInterferenceInfo, timeoutDetected] =
+    parallelReduce([
+      false,
+      false,
+      {
+        interfered: false,
+        passengerAtLocation: false,
+        driverAtLocation: false,
+      },
+      false,
+    ])
       .invariant(balance() == passengerPrice + deposit * 2)
       .while(
         (!passengerStart || !driverStart) &&
           !timeoutDetected &&
-          !adminInterfered
+          !adminInterferenceInfo.interfered
       )
       .api_(Ride.start, () => {
         check(
@@ -113,22 +123,53 @@ export const main = Reach.App(() => {
               Driver.interact.log("Passenger started ride.");
               Driver.interact.log("driverStart:  ");
               Driver.interact.log(driverStart);
-              return [true, driverStart, adminInterfered, timeoutDetected];
+              return [
+                true,
+                driverStart,
+                adminInterferenceInfo,
+                timeoutDetected,
+              ];
             } else {
               Driver.interact.log("Driver started ride.");
               Driver.interact.log("passengerStart:  ");
               Driver.interact.log(passengerStart);
-              return [passengerStart, true, adminInterfered, timeoutDetected];
+              return [
+                passengerStart,
+                true,
+                adminInterferenceInfo,
+                timeoutDetected,
+              ];
             }
+          },
+        ];
+      })
+      .api_(Ride.adminInterference, (passengerAtLocation, driverAtLocation) => {
+        check(this === Admin, "only an admin can interfere");
+        return [
+          0,
+          (ret) => {
+            ret(null);
+            return [
+              passengerStart,
+              driverStart,
+              {
+                interfered: true,
+                passengerAtLocation,
+                driverAtLocation,
+              },
+              timeoutDetected,
+            ];
           },
         ];
       })
       .timeout(absoluteTime(1000), () => {
         Driver.publish();
         Driver.interact.log("Timeout detected.");
-        return [passengerStart, driverStart, adminInterfered, true];
+        return [passengerStart, driverStart, adminInterferenceInfo, true];
       });
 
+  Driver.interact.log("Admin interference info: ");
+  Driver.interact.log(adminInterferenceInfo);
   transfer(passengerPrice - fee + deposit).to(Driver);
   transfer(deposit).to(Passenger);
   transfer(fee).to(Admin);

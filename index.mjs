@@ -18,6 +18,19 @@ const startRide = async (address, contractInfo) => {
   await contract.a.Ride.start();
 };
 
+const adminInterfere = async (
+  address,
+  contractInfo,
+  passengerAtLocation,
+  driverAtLocation
+) => {
+  const contract = address.contract(backend, contractInfo);
+  await contract.a.Ride.adminInterference(
+    passengerAtLocation,
+    driverAtLocation
+  );
+};
+
 const adminInteract = {
   ...stdlib.hasConsoleLogger,
   feePercentage: 2,
@@ -70,7 +83,10 @@ try {
 }
 
 await startRide(passengerAcc, contractInfo);
-await startRide(driverAcc, contractInfo);
+await adminInterfere(adminAcc, contractInfo, true, false);
+try {
+  await startRide(driverAcc, contractInfo);
+} catch (error) {}
 
 await showBalance(adminAcc);
 await showBalance(passengerAcc);
