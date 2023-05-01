@@ -29,9 +29,9 @@ const adminInteract = {
 
 const rideInteract = {
   start: Fun([], Null),
-  //   end: Fun([], Null),
+  end: Fun([], Null),
   adminInterfereStart: Fun([], Null),
-  //   adminInterfereEnd: Fun([Bool, Bool], Null),
+  adminInterfereEnd: Fun([Bool, Bool], Null),
 };
 
 const shouldTheRideContinue = (passengerStart, driverStart) => {
@@ -45,28 +45,74 @@ const shouldTheRideContinue = (passengerStart, driverStart) => {
 const computeEndRideResults = (
   passengerEnd,
   driverEnd,
-  adminInterferenceEnd,
-  timeoutDetectedEnd
+  wasPassengerAtLocation,
+  wasDriverAtLocation,
+  timeoutDetectedEnd,
+  ridePrice,
+  deposit,
+  fee
 ) => {
-  if (passengerEnd && driverEnd) {
+  if (timeoutDetectedEnd) {
+    // vracamo pare svima
     return {
-      shouldContinue: true,
-      punishPassenger: false,
-      punishDriver: false,
+      passenger: ridePrice + deposit,
+      driver: deposit,
+      admin: 0,
     };
   } else {
-    if (timeoutDetectedEnd || adminInterferenceEnd) {
+    if (passengerEnd && driverEnd) {
+      // sve super
       return {
-        shouldContinue: false,
-        punishPassenger: false,
-        punishDriver: false,
+        passenger: deposit,
+        driver: ridePrice + deposit - fee,
+        admin: fee,
       };
+    } else if (passengerEnd) {
+      // sve super samo se kaznjava vozac
+      return {
+        passenger: deposit,
+        driver: ridePrice - fee,
+        admin: fee + deposit,
+      };
+    } else if (driverEnd) {
+      if (wasPassengerAtLocation && wasDriverAtLocation) {
+        // sve super samo se kaznjava putnik
+        return {
+          passenger: 0,
+          driver: ridePrice + deposit - fee,
+          admin: fee + deposit,
+        };
+      } else if (!wasPassengerAtLocation && !wasDriverAtLocation) {
+        // kaznjava se vozac jer laze
+        return {
+          passenger: deposit,
+          driver: ridePrice - fee,
+          admin: fee + deposit,
+        };
+      } else {
+        // vracamo pare svima
+        return {
+          passenger: ridePrice + deposit,
+          driver: deposit,
+          admin: 0,
+        };
+      }
     } else {
-      return {
-        shouldContinue: false,
-        punishPassenger: false,
-        punishDriver: false,
-      };
+      if (wasPassengerAtLocation && wasDriverAtLocation) {
+        // sve super samo se kaznjavaju svi
+        return {
+          passenger: 0,
+          driver: ridePrice - fee,
+          admin: fee + 2 * deposit,
+        };
+      } else {
+        // ne naplacuje se voznja i svi se kaznjavaju
+        return {
+          passenger: ridePrice,
+          driver: 0,
+          admin: 2 * deposit,
+        };
+      }
     }
   }
 };
@@ -176,62 +222,100 @@ export const main = Reach.App(() => {
     transfer(passengerPrice + deposit).to(Passenger);
     transfer(deposit).to(Driver);
   } else {
-    // const [passengerEnd, driverEnd, adminInterferedEnd, timeoutDetectedEnd] =
-    //   parallelReduce([false, false, false, false])
-    //     .invariant(balance() == passengerPrice + deposit * 2)
-    //     .while(
-    //       (!passengerEnd || !driverEnd) &&
-    //         !adminInterferedEnd &&
-    //         !timeoutDetectedEnd
-    //     )
-    //     .api_(Ride.end, () => {
-    //       check(this === Passenger || this === Driver, "not a participant");
-    //       return [
-    //         0,
-    //         (ret) => {
-    //           ret(null);
-    //           if (this == Passenger) {
-    //             return [
-    //               true,
-    //               driverEnd,
-    //               adminInterferedEnd,
-    //               timeoutDetectedEnd,
-    //             ];
-    //           } else {
-    //             return [
-    //               passengerEnd,
-    //               true,
-    //               adminInterferedEnd,
-    //               timeoutDetectedEnd,
-    //             ];
-    //           }
-    //         },
-    //       ];
-    //     })
-    //     .api_(
-    //       Ride.adminInterfereEnd,
-    //       (wasPassengerAtLocation, wasDriverAtLocation) => {
-    //         check(this === Admin, "only an admin can interfere");
-    //         return [
-    //           0,
-    //           (ret) => {
-    //             ret(null);
-    //             Driver.interact.log("Admin detected on end ride.");
-    //             return [passengerEnd, driverEnd, true, timeoutDetectedEnd];
-    //           },
-    //         ];
-    //       }
-    //     )
-    //     .timeout(absoluteTime(10000), () => {
-    //       Driver.publish();
-    //       Driver.interact.log("Timeout detected on end ride.");
-    //       return [passengerEnd, driverEnd, adminInterferedEnd, true];
-    //     });
+    const [
+      passengerEnd,
+      driverEnd,
+      wasPassengerAtLocation,
+      wasDriverAtLocation,
+      adminInterferedEnd,
+      timeoutDetectedEnd,
+    ] = parallelReduce([false, false, false, false, false, false])
+      .invariant(balance() == passengerPrice + deposit * 2)
+      .while(
+        (!passengerEnd || !driverEnd) &&
+          !adminInterferedEnd &&
+          !timeoutDetectedEnd
+      )
+      .api_(Ride.end, () => {
+        check(this === Passenger || this === Driver, "not a participant");
+        return [
+          0,
+          (ret) => {
+            ret(null);
+            if (this == Passenger) {
+              return [
+                true,
+                driverEnd,
+                wasPassengerAtLocation,
+                wasDriverAtLocation,
+                adminInterferedEnd,
+                timeoutDetectedEnd,
+              ];
+            } else {
+              return [
+                passengerEnd,
+                true,
+                wasPassengerAtLocation,
+                wasDriverAtLocation,
+                adminInterferedEnd,
+                timeoutDetectedEnd,
+              ];
+            }
+          },
+        ];
+      })
+      .api_(Ride.adminInterfereEnd, (wasPAtLocation, wasDAtLocation) => {
+        check(this === Admin, "only an admin can interfere");
+        return [
+          0,
+          (ret) => {
+            ret(null);
+            Driver.interact.log("Admin detected on end ride.");
+            return [
+              passengerEnd,
+              driverEnd,
+              wasPAtLocation,
+              wasDAtLocation,
+              true,
+              timeoutDetectedEnd,
+            ];
+          },
+        ];
+      })
+      .timeout(absoluteTime(10000), () => {
+        Driver.publish();
+        Driver.interact.log("Timeout detected on end ride.");
+        return [
+          passengerEnd,
+          driverEnd,
+          wasPassengerAtLocation,
+          wasDriverAtLocation,
+          adminInterferedEnd,
+          true,
+        ];
+      });
 
-    Driver.interact.log("BC: does");
-    transfer(passengerPrice + deposit - fee).to(Driver);
-    transfer(deposit).to(Passenger);
-    transfer(fee).to(Admin);
+    const endPayment = computeEndRideResults(
+      passengerEnd,
+      driverEnd,
+      wasPassengerAtLocation,
+      wasDriverAtLocation,
+      timeoutDetectedEnd,
+      passengerPrice,
+      deposit,
+      fee
+    );
+    Driver.interact.log("Ride ended final result:");
+    Driver.interact.log(endPayment);
+    check(
+      endPayment.passenger + endPayment.driver + endPayment.admin ==
+        passengerPrice + 2 * deposit,
+      "sum of payments must be equal to passengerPrice+deposit+fee"
+    );
+
+    transfer(endPayment.driver).to(Driver);
+    transfer(endPayment.passenger).to(Passenger);
+    transfer(endPayment.admin).to(Admin);
   }
 
   commit();

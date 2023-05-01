@@ -24,9 +24,46 @@ const startRide = async (address, contractInfo) => {
   await contract.a.Ride.start();
 };
 
+const endRide = async (address, contractInfo) => {
+  const contract = address.contract(backend, contractInfo);
+  await contract.a.Ride.end();
+};
+
+const continueRide = async () => {
+  await endRide(passengerAcc, contractInfo);
+  await endRide(driverAcc, contractInfo);
+  setTimeout(
+    () =>
+      adminInterfereEnd(adminAcc, contractInfo, true, true)
+        .then(async () => {
+          await showBalances([adminAcc, passengerAcc, driverAcc]);
+        })
+        .catch(async (err) => {
+          await showBalances([adminAcc, passengerAcc, driverAcc]);
+          console.log(
+            `admin tried to interfere the start ride but it already happened: ${err}`
+          );
+        }),
+    20 * 1000
+  );
+};
+
 const adminInterfereStart = async (address, contractInfo) => {
   const contract = address.contract(backend, contractInfo);
   await contract.a.Ride.adminInterfereStart();
+};
+
+const adminInterfereEnd = async (
+  address,
+  contractInfo,
+  wasPassengerAtLocation,
+  wasDriverAtLocation
+) => {
+  const contract = address.contract(backend, contractInfo);
+  await contract.a.Ride.adminInterfereEnd(
+    wasPassengerAtLocation,
+    wasDriverAtLocation
+  );
 };
 
 const adminInteract = {
@@ -88,12 +125,10 @@ setTimeout(
         await showBalances([adminAcc, passengerAcc, driverAcc]);
       })
       .catch(async (err) => {
-        await showBalances([adminAcc, passengerAcc, driverAcc]);
+        await continueRide();
         console.log(
           `admin tried to interfere the start ride but it already happened: ${err}`
         );
       }),
   10 * 1000
 );
-
-// await showBalances(adminAcc, passengerAcc, driverAcc);
