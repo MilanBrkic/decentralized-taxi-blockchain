@@ -79,6 +79,8 @@ try {
 }
 
 await startRide(passengerAcc, contractInfo);
+await startRide(driverAcc, contractInfo);
+
 setTimeout(
   () =>
     adminInterfereStart(adminAcc, contractInfo)

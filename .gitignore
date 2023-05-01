@@ -1,4 +1,4 @@
-/.reach
-/.vscode
-/build
-reach
+*
+!index.mjs
+!index.rsh
+!.gitignore

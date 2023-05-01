@@ -29,23 +29,33 @@ const adminInteract = {
 
 const rideInteract = {
   start: Fun([], Null),
+  //   end: Fun([], Null),
   adminInterfereStart: Fun([], Null),
+  //   adminInterfereEnd: Fun([Bool, Bool], Null),
 };
 
-const computeStartRideResults = (
-  passengerStart,
-  driverStart,
-  adminInterference,
-  timeoutDetected
-) => {
+const shouldTheRideContinue = (passengerStart, driverStart) => {
   if (passengerStart && driverStart) {
+    return true;
+  } else {
+    return false;
+  }
+};
+
+const computeEndRideResults = (
+  passengerEnd,
+  driverEnd,
+  adminInterferenceEnd,
+  timeoutDetectedEnd
+) => {
+  if (passengerEnd && driverEnd) {
     return {
       shouldContinue: true,
       punishPassenger: false,
       punishDriver: false,
     };
   } else {
-    if (timeoutDetected || adminInterference) {
+    if (timeoutDetectedEnd || adminInterferenceEnd) {
       return {
         shouldContinue: false,
         punishPassenger: false,
@@ -121,67 +131,109 @@ export const main = Reach.App(() => {
 
   Admin.interact.ready();
 
-  const [passengerStart, driverStart, adminInterfered, timeoutDetected] =
-    parallelReduce([false, false, false, false])
-      .invariant(balance() == passengerPrice + deposit * 2)
-      .while(
-        (!passengerStart || !driverStart) &&
-          !timeoutDetected &&
-          !adminInterfered
-      )
-      .api_(Ride.start, () => {
-        check(
-          this === Passenger || this === Driver || this === Admin,
-          "not a participant"
-        );
-        return [
-          0,
-          (ret) => {
-            ret(null);
-            if (this == Passenger) {
-              return [true, driverStart, adminInterfered, timeoutDetected];
-            } else {
-              return [passengerStart, true, adminInterfered, timeoutDetected];
-            }
-          },
-        ];
-      })
-      .api_(Ride.adminInterfereStart, () => {
-        check(this === Admin, "only an admin can interfere");
-        return [
-          0,
-          (ret) => {
-            ret(null);
-            Driver.interact.log("Admin detected.");
-            return [passengerStart, driverStart, true, timeoutDetected];
-          },
-        ];
-      })
-      .timeout(absoluteTime(1000), () => {
-        Driver.publish();
-        Driver.interact.log("Timeout detected.");
-        return [passengerStart, driverStart, adminInterfered, true];
-      });
+  const [passengerStart, driverStart, shouldStop] = parallelReduce([
+    false,
+    false,
+    false,
+  ])
+    .invariant(balance() == passengerPrice + deposit * 2)
+    .while((!passengerStart || !driverStart) && !shouldStop)
+    .api_(Ride.start, () => {
+      check(this === Passenger || this === Driver, "not a participant");
+      return [
+        0,
+        (ret) => {
+          ret(null);
+          if (this == Passenger) {
+            return [true, driverStart, shouldStop];
+          } else {
+            return [passengerStart, true, shouldStop];
+          }
+        },
+      ];
+    })
+    .api_(Ride.adminInterfereStart, () => {
+      check(this === Admin, "only an admin can interfere");
+      return [
+        0,
+        (ret) => {
+          ret(null);
+          Driver.interact.log("Admin detected on ride start.");
+          return [passengerStart, driverStart, true];
+        },
+      ];
+    })
+    .timeout(absoluteTime(1000), () => {
+      Driver.publish();
+      Driver.interact.log("Timeout detected on ride start.");
+      return [passengerStart, driverStart, true];
+    });
 
-  const startResults = computeStartRideResults(
-    passengerStart,
-    driverStart,
-    adminInterfered,
-    timeoutDetected
-  );
+  const shouldContinue = shouldTheRideContinue(passengerStart, driverStart);
 
-  if (startResults.shouldContinue) {
-    Driver.interact.log("BC: continues ride");
-    transfer(passengerPrice - fee + deposit).to(Driver);
-    transfer(deposit).to(Passenger);
-    transfer(fee).to(Admin);
-  } else {
+  if (!shouldContinue) {
     Driver.interact.log("BC: does not");
     transfer(passengerPrice + deposit).to(Passenger);
     transfer(deposit).to(Driver);
+  } else {
+    // const [passengerEnd, driverEnd, adminInterferedEnd, timeoutDetectedEnd] =
+    //   parallelReduce([false, false, false, false])
+    //     .invariant(balance() == passengerPrice + deposit * 2)
+    //     .while(
+    //       (!passengerEnd || !driverEnd) &&
+    //         !adminInterferedEnd &&
+    //         !timeoutDetectedEnd
+    //     )
+    //     .api_(Ride.end, () => {
+    //       check(this === Passenger || this === Driver, "not a participant");
+    //       return [
+    //         0,
+    //         (ret) => {
+    //           ret(null);
+    //           if (this == Passenger) {
+    //             return [
+    //               true,
+    //               driverEnd,
+    //               adminInterferedEnd,
+    //               timeoutDetectedEnd,
+    //             ];
+    //           } else {
+    //             return [
+    //               passengerEnd,
+    //               true,
+    //               adminInterferedEnd,
+    //               timeoutDetectedEnd,
+    //             ];
+    //           }
+    //         },
+    //       ];
+    //     })
+    //     .api_(
+    //       Ride.adminInterfereEnd,
+    //       (wasPassengerAtLocation, wasDriverAtLocation) => {
+    //         check(this === Admin, "only an admin can interfere");
+    //         return [
+    //           0,
+    //           (ret) => {
+    //             ret(null);
+    //             Driver.interact.log("Admin detected on end ride.");
+    //             return [passengerEnd, driverEnd, true, timeoutDetectedEnd];
+    //           },
+    //         ];
+    //       }
+    //     )
+    //     .timeout(absoluteTime(10000), () => {
+    //       Driver.publish();
+    //       Driver.interact.log("Timeout detected on end ride.");
+    //       return [passengerEnd, driverEnd, adminInterferedEnd, true];
+    //     });
+
+    Driver.interact.log("BC: does");
+    transfer(passengerPrice + deposit - fee).to(Driver);
+    transfer(deposit).to(Passenger);
+    transfer(fee).to(Admin);
   }
 
   commit();
-
   exit();
 });
