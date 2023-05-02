@@ -60,7 +60,7 @@ const computeEndRideResults = (
   fee
 ) => {
   if (timeoutDetectedEnd) {
-    // vracamo pare svima
+    // all tokens are returned
     return {
       passenger: ridePrice + deposit,
       driver: deposit,
@@ -68,14 +68,14 @@ const computeEndRideResults = (
     };
   } else {
     if (passengerEnd && driverEnd) {
-      // sve super
+      // all good
       return {
         passenger: deposit,
         driver: ridePrice + deposit - fee,
         admin: fee,
       };
     } else if (passengerEnd) {
-      // sve super samo se kaznjava vozac
+      // the ride is charged and the driver is punished
       return {
         passenger: deposit,
         driver: ridePrice - fee,
@@ -83,21 +83,21 @@ const computeEndRideResults = (
       };
     } else if (driverEnd) {
       if (wasPassengerAtLocation && wasDriverAtLocation) {
-        // sve super samo se kaznjava putnik
+        // the ride is charged and the passenger is punished
         return {
           passenger: 0,
           driver: ridePrice + deposit - fee,
           admin: fee + deposit,
         };
       } else if (!wasPassengerAtLocation && !wasDriverAtLocation) {
-        // kaznjava se vozac jer laze
+        // the driver is punished because he lied
         return {
-          passenger: deposit,
-          driver: ridePrice - fee,
-          admin: fee + deposit,
+          passenger: ridePrice + deposit,
+          driver: 0,
+          admin: deposit,
         };
       } else {
-        // vracamo pare svima
+        // all tokens are returned
         return {
           passenger: ridePrice + deposit,
           driver: deposit,
@@ -106,14 +106,14 @@ const computeEndRideResults = (
       }
     } else {
       if (wasPassengerAtLocation && wasDriverAtLocation) {
-        // sve super samo se kaznjavaju svi
+        // the ride is charged and both participants are punished
         return {
           passenger: 0,
           driver: ridePrice - fee,
           admin: fee + 2 * deposit,
         };
       } else {
-        // ne naplacuje se voznja i svi se kaznjavaju
+        // the ride does not get charged and both participants are punished
         return {
           passenger: ridePrice,
           driver: 0,
@@ -310,11 +310,7 @@ export const main = Reach.App(() => {
       fee
     );
 
-    Notify.rideEnded(
-      passengerPrice + deposit - endPayment.passenger,
-      endPayment.driver,
-      endPayment.admin
-    );
+    Notify.rideEnded(endPayment.passenger, endPayment.driver, endPayment.admin);
     check(
       endPayment.passenger + endPayment.driver + endPayment.admin ==
         passengerPrice + 2 * deposit,

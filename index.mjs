@@ -1,6 +1,13 @@
-import { loadStdlib } from "@reach-sh/stdlib";
+import { loadStdlib, test } from "@reach-sh/stdlib";
 import * as backend from "./build/index.main.mjs";
 const stdlib = loadStdlib(process.env);
+
+const STARTING_BALANCE = stdlib.parseCurrency(1000);
+const STARTING_BALANCE_NUMBER = Number(STARTING_BALANCE);
+const FEE_PERCENTAGE = 2;
+const DEPOSIT_PERCENTAGE = 30;
+const RIDE_PRICE = stdlib.parseCurrency(100);
+const RIDE_PRICE_NUMBER = Number(RIDE_PRICE);
 
 const suStr = stdlib.standardUnit;
 const auStr = stdlib.atomicUnit;
@@ -29,25 +36,6 @@ const endRide = async (address, contractInfo) => {
   await contract.a.Ride.end();
 };
 
-const continueRide = async () => {
-  await endRide(passengerAcc, contractInfo);
-  await endRide(driverAcc, contractInfo);
-  setTimeout(
-    () =>
-      adminInterfereEnd(adminAcc, contractInfo, true, true)
-        .then(async () => {
-          await showBalances([adminAcc, passengerAcc, driverAcc]);
-        })
-        .catch(async (err) => {
-          await showBalances([adminAcc, passengerAcc, driverAcc]);
-          console.log(
-            `admin tried to interfere the start ride but it already happened: ${err}`
-          );
-        }),
-    20 * 1000
-  );
-};
-
 const adminInterfereStart = async (address, contractInfo) => {
   const contract = address.contract(backend, contractInfo);
   await contract.a.Ride.start();
@@ -68,8 +56,8 @@ const adminInterfereEnd = async (
 
 const adminInteract = {
   ...stdlib.hasConsoleLogger,
-  feePercentage: 2,
-  depositPercentage: 50,
+  feePercentage: FEE_PERCENTAGE,
+  depositPercentage: DEPOSIT_PERCENTAGE,
   ready: () => {
     console.log("contract deployed");
 
@@ -81,81 +69,163 @@ const informTimeout = () => {
   console.log(`timed out.`);
 };
 
-const adminAcc = await stdlib.newTestAccount(stdlib.parseCurrency(1000));
-console.log(`adminAcc: ${adminAcc.networkAccount.addr}`);
-const passengerAcc = await stdlib.newTestAccount(stdlib.parseCurrency(1000));
-const driverAcc = await stdlib.newTestAccount(stdlib.parseCurrency(1000));
+const createAccounts = async () => {
+  const adminAcc = await stdlib.newTestAccount(STARTING_BALANCE);
+  const passengerAcc = await stdlib.newTestAccount(STARTING_BALANCE);
+  const driverAcc = await stdlib.newTestAccount(STARTING_BALANCE);
 
-const adminCtc = adminAcc.contract(backend);
-const contractInfo = adminCtc.getInfo();
-const passengerCtc = passengerAcc.contract(backend, contractInfo);
-const driverCtc = driverAcc.contract(backend, contractInfo);
-adminCtc.events.rideEnded.monitor((evt) => {
-  console.log(
-    `Ride ended event | Passenger: ${toSU(
-      Number(evt.what[0]._hex)
-    )} | Driver: ${toSU(Number(evt.what[1]._hex))} | Admin: ${toSU(
-      Number(evt.what[2]._hex)
-    )}`
-  );
-});
+  const adminCtc = adminAcc.contract(backend);
+  const contractInfo = adminCtc.getInfo();
+  const passengerCtc = passengerAcc.contract(backend, contractInfo);
+  const driverCtc = driverAcc.contract(backend, contractInfo);
 
-adminCtc.events.rideStarted.monitor((evt) => {
-  console.log(
-    `Ride started event | Passenger: ${evt.what[0]} | Driver: ${
-      evt.what[1]
-    } | Price: ${toSU(Number(evt.what[2]._hex))} `
-  );
-});
-
-adminCtc.events.adminInterfereOnStartRide.monitor((evt) => {
-  console.log("Admin interfere on start ride event: ");
-});
-
-adminCtc.events.timeOut.monitor(() => {
-  if (evt.what[0]) {
-    console.log("Time out event detected on start.");
-  } else {
-    console.log("Time out event detected on end.");
-  }
-});
-
-await showBalances([adminAcc, passengerAcc, driverAcc]);
-
-try {
-  await Promise.all([
-    adminCtc.participants.Admin(adminInteract),
-    passengerCtc.participants.Passenger({
-      ...stdlib.hasConsoleLogger,
-      passengerPrice: stdlib.parseCurrency(100),
-      informTimeout,
-    }),
-    driverCtc.participants.Driver({
-      ...stdlib.hasConsoleLogger,
-      driverPrice: stdlib.parseCurrency(100),
-      informTimeout,
-    }),
-  ]);
-} catch (error) {
-  if (error !== 666) {
-    throw error;
-  }
-}
-
-await startRide(passengerAcc, contractInfo);
-await startRide(driverAcc, contractInfo);
-
-setTimeout(
-  () =>
-    adminInterfereStart(adminAcc, contractInfo)
-      .then(async () => {
-        await showBalances([adminAcc, passengerAcc, driverAcc]);
-      })
-      .catch(async (err) => {
-        await continueRide();
-        console.log(
-          `admin tried to interfere the start ride but it already happened: ${err}`
-        );
+  try {
+    await Promise.all([
+      adminCtc.participants.Admin(adminInteract),
+      passengerCtc.participants.Passenger({
+        ...stdlib.hasConsoleLogger,
+        passengerPrice: RIDE_PRICE,
+        informTimeout,
       }),
-  10 * 1000
+      driverCtc.participants.Driver({
+        ...stdlib.hasConsoleLogger,
+        driverPrice: RIDE_PRICE,
+        informTimeout,
+      }),
+    ]);
+  } catch (error) {
+    if (error !== 666) {
+      throw error;
+    }
+  }
+
+  return { adminAcc, passengerAcc, driverAcc, contractInfo };
+};
+
+const oneToken = stdlib.parseCurrency(1);
+const oneTokenNumber = Number(oneToken);
+test.one("ride successful", async () => {
+  const { adminAcc, passengerAcc, driverAcc, contractInfo } =
+    await createAccounts();
+
+  await startRide(passengerAcc, contractInfo);
+  await startRide(driverAcc, contractInfo);
+
+  await endRide(passengerAcc, contractInfo);
+  await endRide(driverAcc, contractInfo);
+
+  const adminBalance = Number(await stdlib.balanceOf(adminAcc));
+  const passengerBalance = Number(await stdlib.balanceOf(passengerAcc));
+  const driverBalance = Number(await stdlib.balanceOf(driverAcc));
+
+  test.chk(
+    "admin should be paid the fee ",
+    adminBalance - (RIDE_PRICE_NUMBER * FEE_PERCENTAGE) / 100 + oneTokenNumber >
+      STARTING_BALANCE_NUMBER,
+    true
+  );
+
+  test.chk(
+    "passenger should be charged for the ride ",
+    passengerBalance + RIDE_PRICE_NUMBER + oneTokenNumber >
+      STARTING_BALANCE_NUMBER &&
+      passengerBalance + oneTokenNumber < STARTING_BALANCE_NUMBER,
+    true
+  );
+
+  test.chk(
+    "driver should be paid the ride ",
+    driverBalance -
+      RIDE_PRICE_NUMBER +
+      (RIDE_PRICE_NUMBER * FEE_PERCENTAGE) / 100 +
+      oneTokenNumber >
+      STARTING_BALANCE_NUMBER,
+    true
+  );
+});
+
+test.one(
+  "Ride is cancelled, because passenger did not start the ride",
+  async () => {
+    const { adminAcc, passengerAcc, driverAcc, contractInfo } =
+      await createAccounts();
+
+    await startRide(passengerAcc, contractInfo);
+    await adminInterfereStart(adminAcc, contractInfo);
+
+    const adminBalance = Number(await stdlib.balanceOf(adminAcc));
+    const passengerBalance = Number(await stdlib.balanceOf(passengerAcc));
+    const driverBalance = Number(await stdlib.balanceOf(driverAcc));
+
+    test.chk(
+      "adminBalance should be unchanged",
+      adminBalance + oneTokenNumber > STARTING_BALANCE_NUMBER &&
+        adminBalance < STARTING_BALANCE_NUMBER,
+      true
+    );
+
+    test.chk(
+      "passengerBalance should be unchanged",
+      passengerBalance + oneTokenNumber > STARTING_BALANCE_NUMBER &&
+        passengerBalance < STARTING_BALANCE_NUMBER,
+      true
+    );
+
+    test.chk(
+      "driverBalance should be unchanged",
+      driverBalance + oneTokenNumber > STARTING_BALANCE_NUMBER &&
+        driverBalance < STARTING_BALANCE_NUMBER,
+      true
+    );
+  }
 );
+
+test.one("call the apis before the preferred state, endRide", async () => {
+  const { passengerAcc, contractInfo } = await createAccounts();
+
+  let didError = false;
+  try {
+    await endRide(passengerAcc, contractInfo);
+    didError = false;
+  } catch (error) {
+    didError = true;
+  }
+
+  test.chk("should error", didError, true);
+});
+
+test.one(
+  "call the apis before the preferred state, adminInterfereEnd",
+  async () => {
+    const { adminAcc, contractInfo } = await createAccounts();
+
+    let didError = false;
+    try {
+      await adminInterfereEnd(adminAcc, contractInfo);
+      didError = false;
+    } catch (error) {
+      didError = true;
+    }
+
+    test.chk("should error", didError, true);
+  }
+);
+
+test.one("passenger call the admin endpoint", async () => {
+  const { passengerAcc, driverAcc, contractInfo } = await createAccounts();
+
+  await startRide(passengerAcc, contractInfo);
+  await startRide(driverAcc, contractInfo);
+
+  let didError = false;
+  try {
+    await adminInterfereEnd(passengerAcc, contractInfo);
+    didError = false;
+  } catch (error) {
+    didError = true;
+  }
+
+  test.chk("should error", didError, true);
+});
+
+await test.run();
