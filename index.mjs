@@ -50,7 +50,7 @@ const continueRide = async () => {
 
 const adminInterfereStart = async (address, contractInfo) => {
   const contract = address.contract(backend, contractInfo);
-  await contract.a.Ride.adminInterfereStart();
+  await contract.a.Ride.start();
 };
 
 const adminInterfereEnd = async (
@@ -84,14 +84,41 @@ const informTimeout = () => {
 const adminAcc = await stdlib.newTestAccount(stdlib.parseCurrency(1000));
 console.log(`adminAcc: ${adminAcc.networkAccount.addr}`);
 const passengerAcc = await stdlib.newTestAccount(stdlib.parseCurrency(1000));
-console.log(`passengerAcc: ${passengerAcc.networkAccount.addr}`);
 const driverAcc = await stdlib.newTestAccount(stdlib.parseCurrency(1000));
-console.log(`driverAcc: ${driverAcc.networkAccount.addr}`);
 
 const adminCtc = adminAcc.contract(backend);
 const contractInfo = adminCtc.getInfo();
 const passengerCtc = passengerAcc.contract(backend, contractInfo);
 const driverCtc = driverAcc.contract(backend, contractInfo);
+adminCtc.events.rideEnded.monitor((evt) => {
+  console.log(
+    `Ride ended event | Passenger: ${toSU(
+      Number(evt.what[0]._hex)
+    )} | Driver: ${toSU(Number(evt.what[1]._hex))} | Admin: ${toSU(
+      Number(evt.what[2]._hex)
+    )}`
+  );
+});
+
+adminCtc.events.rideStarted.monitor((evt) => {
+  console.log(
+    `Ride started event | Passenger: ${evt.what[0]} | Driver: ${
+      evt.what[1]
+    } | Price: ${toSU(Number(evt.what[2]._hex))} `
+  );
+});
+
+adminCtc.events.adminInterfereOnStartRide.monitor((evt) => {
+  console.log("Admin interfere on start ride event: ");
+});
+
+adminCtc.events.timeOut.monitor(() => {
+  if (evt.what[0]) {
+    console.log("Time out event detected on start.");
+  } else {
+    console.log("Time out event detected on end.");
+  }
+});
 
 await showBalances([adminAcc, passengerAcc, driverAcc]);
 

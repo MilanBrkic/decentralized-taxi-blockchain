@@ -30,8 +30,15 @@ const adminInteract = {
 const rideInteract = {
   start: Fun([], Null),
   end: Fun([], Null),
-  adminInterfereStart: Fun([], Null),
   adminInterfereEnd: Fun([Bool, Bool], Null),
+};
+
+const notifyInteract = {
+  rideStarted: [Address, Address, UInt],
+  rideEnded: [UInt, UInt, UInt],
+  adminInterfereOnStartRide: [],
+  adminInterferenceOnEndRide: [Bool, Bool],
+  timeOut: [Bool],
 };
 
 const shouldTheRideContinue = (passengerStart, driverStart) => {
@@ -122,6 +129,7 @@ export const main = Reach.App(() => {
   const Passenger = Participant("Passenger", passengerInteract);
   const Driver = Participant("Driver", driverInteract);
   const Ride = API("Ride", rideInteract);
+  const Notify = Events(notifyInteract);
 
   init();
   const informTimeout = () => {
@@ -185,33 +193,28 @@ export const main = Reach.App(() => {
     .invariant(balance() == passengerPrice + deposit * 2)
     .while((!passengerStart || !driverStart) && !shouldStop)
     .api_(Ride.start, () => {
-      check(this === Passenger || this === Driver, "not a participant");
+      check(
+        this === Passenger || this === Driver || this === Admin,
+        "not a participant"
+      );
       return [
         0,
         (ret) => {
           ret(null);
           if (this == Passenger) {
             return [true, driverStart, shouldStop];
-          } else {
+          } else if (this == Driver) {
             return [passengerStart, true, shouldStop];
+          } else {
+            Notify.adminInterfereOnStartRide();
+            return [passengerStart, driverStart, true];
           }
-        },
-      ];
-    })
-    .api_(Ride.adminInterfereStart, () => {
-      check(this === Admin, "only an admin can interfere");
-      return [
-        0,
-        (ret) => {
-          ret(null);
-          Driver.interact.log("Admin detected on ride start.");
-          return [passengerStart, driverStart, true];
         },
       ];
     })
     .timeout(absoluteTime(1000), () => {
       Driver.publish();
-      Driver.interact.log("Timeout detected on ride start.");
+      Notify.timeOut(true);
       return [passengerStart, driverStart, true];
     });
 
@@ -222,6 +225,7 @@ export const main = Reach.App(() => {
     transfer(passengerPrice + deposit).to(Passenger);
     transfer(deposit).to(Driver);
   } else {
+    Notify.rideStarted(Passenger, Driver, passengerPrice);
     const [
       passengerEnd,
       driverEnd,
@@ -284,7 +288,7 @@ export const main = Reach.App(() => {
       })
       .timeout(absoluteTime(10000), () => {
         Driver.publish();
-        Driver.interact.log("Timeout detected on end ride.");
+        Notify.timeOut(false);
         return [
           passengerEnd,
           driverEnd,
@@ -305,8 +309,12 @@ export const main = Reach.App(() => {
       deposit,
       fee
     );
-    Driver.interact.log("Ride ended final result:");
-    Driver.interact.log(endPayment);
+
+    Notify.rideEnded(
+      passengerPrice + deposit - endPayment.passenger,
+      endPayment.driver,
+      endPayment.admin
+    );
     check(
       endPayment.passenger + endPayment.driver + endPayment.admin ==
         passengerPrice + 2 * deposit,
