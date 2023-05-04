@@ -212,7 +212,7 @@ export const main = Reach.App(() => {
         },
       ];
     })
-    .timeout(absoluteTime(1000), () => {
+    .timeout(absoluteTime(10000), () => {
       Driver.publish();
       Notify.timeOut(true);
       return [passengerStart, driverStart, true];
