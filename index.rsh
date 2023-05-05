@@ -38,7 +38,6 @@ const notifyInteract = {
   rideEnded: [UInt, UInt, UInt],
   adminInterfereOnStartRide: [],
   adminInterferenceOnEndRide: [Bool, Bool],
-  timeOut: [Bool],
 };
 
 const shouldTheRideContinue = (passengerStart, driverStart) => {
@@ -54,72 +53,62 @@ const computeEndRideResults = (
   driverEnd,
   wasPassengerAtLocation,
   wasDriverAtLocation,
-  timeoutDetectedEnd,
   ridePrice,
   deposit,
   fee
 ) => {
-  if (timeoutDetectedEnd) {
-    // all tokens are returned
+  if (passengerEnd && driverEnd) {
+    // all good
     return {
-      passenger: ridePrice + deposit,
-      driver: deposit,
-      admin: 0,
+      passenger: deposit,
+      driver: ridePrice + deposit - fee,
+      admin: fee,
     };
-  } else {
-    if (passengerEnd && driverEnd) {
-      // all good
+  } else if (passengerEnd) {
+    // the ride is charged and the driver is punished
+    return {
+      passenger: deposit,
+      driver: ridePrice - fee,
+      admin: fee + deposit,
+    };
+  } else if (driverEnd) {
+    if (wasPassengerAtLocation && wasDriverAtLocation) {
+      // the ride is charged and the passenger is punished
       return {
-        passenger: deposit,
+        passenger: 0,
         driver: ridePrice + deposit - fee,
-        admin: fee,
-      };
-    } else if (passengerEnd) {
-      // the ride is charged and the driver is punished
-      return {
-        passenger: deposit,
-        driver: ridePrice - fee,
         admin: fee + deposit,
       };
-    } else if (driverEnd) {
-      if (wasPassengerAtLocation && wasDriverAtLocation) {
-        // the ride is charged and the passenger is punished
-        return {
-          passenger: 0,
-          driver: ridePrice + deposit - fee,
-          admin: fee + deposit,
-        };
-      } else if (!wasPassengerAtLocation && !wasDriverAtLocation) {
-        // the driver is punished because he lied
-        return {
-          passenger: ridePrice + deposit,
-          driver: 0,
-          admin: deposit,
-        };
-      } else {
-        // all tokens are returned
-        return {
-          passenger: ridePrice + deposit,
-          driver: deposit,
-          admin: 0,
-        };
-      }
+    } else if (!wasPassengerAtLocation && !wasDriverAtLocation) {
+      // the driver is punished because he lied
+      return {
+        passenger: ridePrice + deposit,
+        driver: 0,
+        admin: deposit,
+      };
     } else {
-      if (wasPassengerAtLocation && wasDriverAtLocation) {
-        // the ride is charged and both participants are punished
-        return {
-          passenger: 0,
-          driver: ridePrice - fee,
-          admin: fee + 2 * deposit,
-        };
-      } else {
-        // the ride does not get charged and both participants are punished
-        return {
-          passenger: ridePrice,
-          driver: 0,
-          admin: 2 * deposit,
-        };
-      }
+      // all tokens are returned
+      return {
+        passenger: ridePrice + deposit,
+        driver: deposit,
+        admin: 0,
+      };
+    }
+  } else {
+    if (wasPassengerAtLocation && wasDriverAtLocation) {
+      // the ride is charged and both participants are punished
+      return {
+        passenger: 0,
+        driver: ridePrice - fee,
+        admin: fee + 2 * deposit,
+      };
+    } else {
+      // the ride does not get charged and both participants are punished
+      return {
+        passenger: ridePrice,
+        driver: 0,
+        admin: 2 * deposit,
+      };
     }
   }
 };
@@ -211,11 +200,6 @@ export const main = Reach.App(() => {
           }
         },
       ];
-    })
-    .timeout(absoluteTime(10000), () => {
-      Driver.publish();
-      Notify.timeOut(true);
-      return [passengerStart, driverStart, true];
     });
 
   const shouldContinue = shouldTheRideContinue(passengerStart, driverStart);
@@ -232,14 +216,9 @@ export const main = Reach.App(() => {
       wasPassengerAtLocation,
       wasDriverAtLocation,
       adminInterferedEnd,
-      timeoutDetectedEnd,
-    ] = parallelReduce([false, false, false, false, false, false])
+    ] = parallelReduce([false, false, false, false, false])
       .invariant(balance() == passengerPrice + deposit * 2)
-      .while(
-        (!passengerEnd || !driverEnd) &&
-          !adminInterferedEnd &&
-          !timeoutDetectedEnd
-      )
+      .while((!passengerEnd || !driverEnd) && !adminInterferedEnd)
       .api_(Ride.end, () => {
         check(this === Passenger || this === Driver, "not a participant");
         return [
@@ -253,7 +232,6 @@ export const main = Reach.App(() => {
                 wasPassengerAtLocation,
                 wasDriverAtLocation,
                 adminInterferedEnd,
-                timeoutDetectedEnd,
               ];
             } else {
               return [
@@ -262,7 +240,6 @@ export const main = Reach.App(() => {
                 wasPassengerAtLocation,
                 wasDriverAtLocation,
                 adminInterferedEnd,
-                timeoutDetectedEnd,
               ];
             }
           },
@@ -281,21 +258,8 @@ export const main = Reach.App(() => {
               wasPAtLocation,
               wasDAtLocation,
               true,
-              timeoutDetectedEnd,
             ];
           },
-        ];
-      })
-      .timeout(absoluteTime(10000), () => {
-        Driver.publish();
-        Notify.timeOut(false);
-        return [
-          passengerEnd,
-          driverEnd,
-          wasPassengerAtLocation,
-          wasDriverAtLocation,
-          adminInterferedEnd,
-          true,
         ];
       });
 
@@ -304,7 +268,6 @@ export const main = Reach.App(() => {
       driverEnd,
       wasPassengerAtLocation,
       wasDriverAtLocation,
-      timeoutDetectedEnd,
       passengerPrice,
       deposit,
       fee
